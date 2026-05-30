@@ -34,7 +34,7 @@ def _qiniu_asr_request(file_bytes: bytes) -> dict:
     url = os.getenv("QINIU_ASR_URL", "http://yitu-audio.qiniuapi.com/v2/asr")
     audio_base64 = base64.b64encode(file_bytes).decode("utf-8")
     body = {
-        "audioBase64": audio_base64,
+        "audioDataBase64": audio_base64,
         "lang": "MANDARIN",
         "scene": "GENERAL",
     }
