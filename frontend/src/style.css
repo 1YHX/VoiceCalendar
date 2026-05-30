@@ -203,7 +203,7 @@ pre {
   align-items: center;
   justify-content: space-between;
   min-height: 24px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .month-day-head span {
@@ -226,6 +226,21 @@ pre {
 .month-day-head small {
   color: #64748b;
   font-size: 12px;
+}
+
+.lunar-text {
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lunar-text.festival {
+  color: #dc2626;
+  font-weight: 700;
 }
 
 .month-day-events {

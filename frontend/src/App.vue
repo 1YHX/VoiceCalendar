@@ -10,6 +10,7 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { Solar } from 'lunar-javascript'
 import { createEventByCommand, deleteEvent, getEvents, uploadAudio } from './api/calendar'
 
 const commandText = ref('明天下午三点提醒我开会')
@@ -51,6 +52,21 @@ function toLocalDateKey(date) {
   return `${year}-${month}-${day}`
 }
 
+function getLunarInfo(date) {
+  const solar = Solar.fromYmd(date.getFullYear(), date.getMonth() + 1, date.getDate())
+  const lunar = solar.getLunar()
+  const solarFestivals = solar.getFestivals()
+  const lunarFestivals = lunar.getFestivals()
+  const jieQi = lunar.getJieQi()
+  const festival = [...solarFestivals, ...lunarFestivals, jieQi].filter(Boolean)[0] || ''
+  const lunarDay = lunar.getDay() === 1 ? `${lunar.getMonthInChinese()}月` : lunar.getDayInChinese()
+
+  return {
+    lunarText: festival || lunarDay,
+    festival,
+  }
+}
+
 const calendarTitle = computed(() => {
   const date = calendarCursor.value
   return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`
@@ -68,9 +84,12 @@ const monthCells = computed(() => {
     const date = new Date(start)
     date.setDate(start.getDate() + index)
     const key = toLocalDateKey(date)
+    const lunarInfo = getLunarInfo(date)
     return {
       key,
       day: date.getDate(),
+      lunarText: lunarInfo.lunarText,
+      festival: lunarInfo.festival,
       currentMonth: date.getMonth() === month,
       today: key === toLocalDateKey(new Date()),
       events: events.value.filter((event) => dateKey(event.start_time) === key)
@@ -372,6 +391,7 @@ onMounted(loadEvents)
               <span>{{ day.day }}</span>
               <small v-if="day.events.length">{{ day.events.length }} 条</small>
             </div>
+            <p class="lunar-text" :class="{ festival: day.festival }">{{ day.lunarText }}</p>
             <div class="month-day-events">
               <div v-for="event in day.events.slice(0, 3)" :key="event.id" class="calendar-event">
                 <span>{{ formatClock(event.start_time) }}</span>
