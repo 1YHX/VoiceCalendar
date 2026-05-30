@@ -1,6 +1,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { Delete, Microphone, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Delete,
+  Microphone,
+  Refresh,
+  VideoPause,
+  VideoPlay
+} from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { createEventByCommand, deleteEvent, getEvents, uploadAudio } from './api/calendar'
 
@@ -14,6 +22,7 @@ const asrLoading = ref(false)
 const recording = ref(false)
 const errorMessage = ref('')
 const voiceStatus = ref('')
+const calendarCursor = ref(new Date())
 let audioContext = null
 let audioSource = null
 let audioProcessor = null
@@ -37,26 +46,49 @@ function dateKey(value) {
   return value.replace('T', ' ').slice(0, 10)
 }
 
-function formatMonthDay(date) {
-  return `${date.getMonth() + 1}/${date.getDate()}`
+function toLocalDateKey(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-const weekDays = computed(() => {
-  const labels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today)
-    date.setDate(today.getDate() + index)
-    const key = date.toISOString().slice(0, 10)
+const calendarTitle = computed(() => {
+  const date = calendarCursor.value
+  return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`
+})
+
+const monthCells = computed(() => {
+  const cursor = calendarCursor.value
+  const year = cursor.getFullYear()
+  const month = cursor.getMonth()
+  const firstDay = new Date(year, month, 1)
+  const start = new Date(firstDay)
+  start.setDate(firstDay.getDate() - firstDay.getDay())
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start)
+    date.setDate(start.getDate() + index)
+    const key = toLocalDateKey(date)
     return {
       key,
-      label: index === 0 ? '今天' : labels[date.getDay()],
-      dateText: formatMonthDay(date),
+      day: date.getDate(),
+      currentMonth: date.getMonth() === month,
+      today: key === toLocalDateKey(new Date()),
       events: events.value.filter((event) => dateKey(event.start_time) === key)
     }
   })
 })
+
+function changeMonth(offset) {
+  const next = new Date(calendarCursor.value)
+  next.setMonth(next.getMonth() + offset)
+  calendarCursor.value = next
+}
+
+function backToToday() {
+  calendarCursor.value = new Date()
+}
 
 async function loadEvents() {
   listLoading.value = true
@@ -366,21 +398,38 @@ onMounted(loadEvents)
 
       <section class="calendar-panel">
         <div class="section-head">
-          <h2>近 7 天日历</h2>
-          <span>{{ events.length }} 条日程</span>
+          <h2>日历</h2>
+          <div class="calendar-toolbar">
+            <el-button :icon="ArrowLeft" circle @click="changeMonth(-1)" />
+            <strong>{{ calendarTitle }}</strong>
+            <el-button :icon="ArrowRight" circle @click="changeMonth(1)" />
+            <el-button @click="backToToday">今天</el-button>
+          </div>
         </div>
-        <div class="week-calendar">
-          <div v-for="day in weekDays" :key="day.key" class="day-column">
-            <div class="day-head">
-              <span>{{ day.label }}</span>
-              <strong>{{ day.dateText }}</strong>
+        <div class="month-calendar">
+          <div class="weekday">周日</div>
+          <div class="weekday">周一</div>
+          <div class="weekday">周二</div>
+          <div class="weekday">周三</div>
+          <div class="weekday">周四</div>
+          <div class="weekday">周五</div>
+          <div class="weekday">周六</div>
+          <div
+            v-for="day in monthCells"
+            :key="day.key"
+            class="month-day"
+            :class="{ muted: !day.currentMonth, today: day.today }"
+          >
+            <div class="month-day-head">
+              <span>{{ day.day }}</span>
+              <small v-if="day.events.length">{{ day.events.length }} 条</small>
             </div>
-            <div class="day-events">
-              <div v-for="event in day.events" :key="event.id" class="calendar-event">
+            <div class="month-day-events">
+              <div v-for="event in day.events.slice(0, 3)" :key="event.id" class="calendar-event">
                 <span>{{ formatClock(event.start_time) }}</span>
                 <p>{{ event.title }}</p>
               </div>
-              <p v-if="day.events.length === 0" class="empty-day">暂无</p>
+              <p v-if="day.events.length > 3" class="more-events">还有 {{ day.events.length - 3 }} 条</p>
             </div>
           </div>
         </div>
