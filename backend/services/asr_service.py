@@ -43,6 +43,11 @@ def _qiniu_asr_request(file_bytes: bytes) -> dict:
 
     if response_info.status_code != 200:
         error_text = getattr(response_info, "text_body", "") or response_info.error or "七牛 ASR 请求失败"
+        if response_info.status_code == 403:
+            error_text = "七牛返回 403：请检查 AK/SK 是否正确、账户是否已实名/有余额，以及短语音听写服务权限是否已开通"
+        req_id = getattr(response_info, "req_id", "")
+        if req_id:
+            error_text = f"{error_text}，req_id={req_id}"
         raise ValueError(f"七牛 ASR 请求失败：{error_text}")
     if not ret:
         raise ValueError("七牛 ASR 返回为空")
