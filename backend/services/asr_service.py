@@ -31,6 +31,7 @@ def _qiniu_asr_request(file_bytes: bytes) -> dict:
     if not access_key or not secret_key:
         raise ValueError("缺少 QINIU_ACCESS_KEY 或 QINIU_SECRET_KEY")
 
+    # 七牛短语音听写接口支持直接传 base64，MVP 不需要先上传到对象存储。
     url = os.getenv("QINIU_ASR_URL", "http://yitu-audio.qiniuapi.com/v2/asr")
     audio_base64 = base64.b64encode(file_bytes).decode("utf-8")
     body = {
@@ -41,6 +42,7 @@ def _qiniu_asr_request(file_bytes: bytes) -> dict:
     auth = QiniuMacAuth(access_key, secret_key)
     ret, response_info = _post_with_qiniu_auth(url, body, auth)
 
+    # 403 通常是账号或接口权限问题，保留 req_id 方便七牛工单排查。
     if response_info.status_code != 200:
         error_text = getattr(response_info, "text_body", "") or response_info.error or "七牛 ASR 请求失败"
         if response_info.status_code == 403:
@@ -68,6 +70,7 @@ def _qiniu_asr_request(file_bytes: bytes) -> dict:
 async def qiniu_asr(file_bytes: bytes, filename: str) -> dict:
     if not file_bytes:
         raise ValueError("上传音频为空")
+    # requests 是同步库，放到线程里执行，避免阻塞 FastAPI 事件循环。
     return await asyncio.to_thread(_qiniu_asr_request, file_bytes)
 
 

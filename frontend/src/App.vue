@@ -53,6 +53,7 @@ function toLocalDateKey(date) {
 }
 
 function getLunarInfo(date) {
+  // 月历只在展示层计算农历和节日，不影响后端日程数据结构。
   const solar = Solar.fromYmd(date.getFullYear(), date.getMonth() + 1, date.getDate())
   const lunar = solar.getLunar()
   const solarFestivals = solar.getFestivals()
@@ -170,6 +171,7 @@ async function startRecording() {
   errorMessage.value = ''
   voiceStatus.value = ''
   try {
+    // 直接采集 PCM 数据并编码成 WAV，兼容七牛短语音听写支持的格式。
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
     audioContext = new (window.AudioContext || window.webkitAudioContext)()
     recordingSampleRate = audioContext.sampleRate
@@ -253,6 +255,7 @@ function writeString(view, offset, value) {
 }
 
 function encodeWav(buffers, sampleRate) {
+  // 浏览器录音得到的是 Float32 PCM，这里封装为 16-bit mono WAV 文件上传。
   const samples = mergeBuffers(buffers)
   const bytesPerSample = 2
   const buffer = new ArrayBuffer(44 + samples.length * bytesPerSample)

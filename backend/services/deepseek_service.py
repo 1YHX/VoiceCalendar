@@ -46,6 +46,7 @@ def _extract_json(content: str) -> dict:
 
 
 def _normalize_time(text: str) -> tuple[int, int] | None:
+    # 未配置 DeepSeek key 时使用这个轻量兜底，保证演示指令仍能跑通。
     chinese_digits = {
         "零": 0,
         "一": 1,
@@ -121,6 +122,7 @@ async def parse_calendar_command(text: str, now: datetime | None = None) -> Pars
     if not api_key or api_key == "your_deepseek_api_key":
         return _local_demo_parse(text, now)
 
+    # 真实解析交给 DeepSeek，要求模型只返回 JSON，后端再做结构化校验。
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
     model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
     payload = {
