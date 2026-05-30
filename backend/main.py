@@ -75,8 +75,10 @@ def remove_event(event_id: int, db: Session = Depends(get_db)):
 @app.post("/api/asr", response_model=AsrResponse)
 async def asr(file: UploadFile = File(...)):
     file_bytes = await file.read()
-    result = await recognize_audio(file_bytes, file.filename or "audio")
+    try:
+        result = await recognize_audio(file_bytes, file.filename or "audio")
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     if not result.get("success"):
         raise HTTPException(status_code=501, detail=result.get("message", "ASR 未启用"))
     return result
-

@@ -64,7 +64,20 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ASR_MOCK=true
 ```
 
-`backend/services/asr_service.py` 已预留 `qiniu_asr_placeholder()`，后续可以替换为七牛云真实长语音识别 API 调用。
+`backend/services/asr_service.py` 已接入七牛云短语音听写；`ASR_MOCK=true` 时走 mock，`ASR_MOCK=false` 时走真实七牛接口。
+
+如果要使用七牛云短语音听写，把 `.env` 改为：
+
+```env
+ASR_MOCK=false
+QINIU_ACCESS_KEY=你的 AccessKey
+QINIU_SECRET_KEY=你的 SecretKey
+QINIU_ASR_URL=http://yitu-audio.qiniuapi.com/v2/asr
+QINIU_BUCKET=
+QINIU_REGION=
+```
+
+当前实现直接把浏览器录音转为 `audioBase64` 请求七牛短语音听写接口，不依赖 bucket 和 region。
 
 ## 前端启动
 
