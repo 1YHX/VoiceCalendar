@@ -45,7 +45,7 @@ def _extract_json(content: str) -> dict:
     return json.loads(cleaned)
 
 
-def _normalize_hour(text: str) -> int | None:
+def _normalize_time(text: str) -> tuple[int, int] | None:
     chinese_digits = {
         "零": 0,
         "一": 1,
@@ -70,7 +70,8 @@ def _normalize_hour(text: str) -> int | None:
         return None
     if ("下午" in text or "晚上" in text) and hour < 12:
         hour += 12
-    return hour
+    minute = 30 if "点半" in text else 0
+    return hour, minute
 
 
 def _extract_title(text: str) -> str:
@@ -80,7 +81,7 @@ def _extract_title(text: str) -> str:
 
 
 def _local_demo_parse(text: str, now: datetime) -> ParsedCommand:
-    hour = _normalize_hour(text)
+    parsed_time = _normalize_time(text)
     if "删除" in text:
         return ParsedCommand(intent="delete", confidence=0.7)
     if "查询" in text or "查看" in text:
@@ -89,7 +90,7 @@ def _local_demo_parse(text: str, now: datetime) -> ParsedCommand:
         return ParsedCommand(intent="update", confidence=0.7)
     if "提醒我" not in text:
         return ParsedCommand(intent="unknown", confidence=0.3)
-    if hour is None:
+    if parsed_time is None:
         return ParsedCommand(
             intent="need_clarification",
             confidence=0.5,
@@ -101,7 +102,8 @@ def _local_demo_parse(text: str, now: datetime) -> ParsedCommand:
         days = 1
     elif "后天" in text:
         days = 2
-    start = (now + timedelta(days=days)).replace(hour=hour, minute=0, second=0, microsecond=0)
+    hour, minute = parsed_time
+    start = (now + timedelta(days=days)).replace(hour=hour, minute=minute, second=0, microsecond=0)
     end = start + timedelta(hours=1)
     return ParsedCommand(
         intent="create",
