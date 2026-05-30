@@ -22,7 +22,7 @@ feat: add fastapi backend MVP
 - 完成文本输入和执行指令按钮。
 - 完成日程列表展示。
 - 完成删除交互。
-- 完成浏览器麦克风录音和 `POST /api/asr` mock 识别流程。
+- 完成浏览器麦克风录音和 `POST /api/asr` 识别流程。
 - 完成 README 和 demo 脚本。
 
 推荐 commit：

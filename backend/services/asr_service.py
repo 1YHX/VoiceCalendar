@@ -1,10 +1,13 @@
-import os
 import asyncio
 import base64
+import os
+import uuid
 
-import qiniu
-import requests
-from qiniu import QiniuMacAuth, config, http
+from tencentcloud.common import credential
+from tencentcloud.common.common_client import CommonClient
+from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
+from tencentcloud.common.profile.client_profile import ClientProfile
+from tencentcloud.common.profile.http_profile import HttpProfile
 
 
 def mock_asr() -> dict:
@@ -15,66 +18,69 @@ def mock_asr() -> dict:
     }
 
 
-def _post_with_qiniu_auth(url: str, body: dict, auth: QiniuMacAuth):
-    qiniu_auth = qiniu.auth.QiniuMacRequestsAuth(auth)
-    timeout = config.get_default("connection_timeout")
-    try:
-        response = requests.post(url, json=body, auth=qiniu_auth, timeout=timeout)
-    except Exception as exc:
-        return None, http.ResponseInfo(None, exc)
-    return http.__return_wrapper(response)
+def _detect_voice_format(filename: str) -> str:
+    suffix = filename.rsplit(".", 1)[-1].lower() if "." in filename else "wav"
+    if suffix in {"wav", "mp3", "m4a", "ogg", "amr"}:
+        return suffix
+    return "wav"
 
 
-def _qiniu_asr_request(file_bytes: bytes) -> dict:
-    access_key = os.getenv("QINIU_ACCESS_KEY", "")
-    secret_key = os.getenv("QINIU_SECRET_KEY", "")
-    if not access_key or not secret_key:
-        raise ValueError("缺少 QINIU_ACCESS_KEY 或 QINIU_SECRET_KEY")
+def _tencent_asr_request(file_bytes: bytes, filename: str) -> dict:
+    secret_id = os.getenv("TENCENT_SECRET_ID", "")
+    secret_key = os.getenv("TENCENT_SECRET_KEY", "")
+    if not secret_id or not secret_key:
+        raise ValueError("缺少 TENCENT_SECRET_ID 或 TENCENT_SECRET_KEY")
 
-    # 七牛短语音听写接口支持直接传 base64，MVP 不需要先上传到对象存储。
-    url = os.getenv("QINIU_ASR_URL", "http://yitu-audio.qiniuapi.com/v2/asr")
-    audio_base64 = base64.b64encode(file_bytes).decode("utf-8")
-    body = {
-        "audioDataBase64": audio_base64,
-        "lang": "MANDARIN",
-        "scene": "GENERAL",
+    http_profile = HttpProfile()
+    http_profile.endpoint = os.getenv("TENCENT_ASR_ENDPOINT", "asr.tencentcloudapi.com")
+    client_profile = ClientProfile()
+    client_profile.httpProfile = http_profile
+
+    # 腾讯云一句话识别 SourceType=1 支持直接上传本地音频 base64。
+    cred = credential.Credential(secret_id, secret_key)
+    client = CommonClient(
+        "asr",
+        "2019-06-14",
+        cred,
+        os.getenv("TENCENT_ASR_REGION", "ap-shanghai"),
+        profile=client_profile,
+    )
+    params = {
+        "ProjectId": 0,
+        "SubServiceType": 2,
+        "EngSerViceType": os.getenv("TENCENT_ASR_ENGINE", "16k_zh"),
+        "SourceType": 1,
+        "VoiceFormat": _detect_voice_format(filename),
+        "UsrAudioKey": f"voice-calendar-{uuid.uuid4()}",
+        "Data": base64.b64encode(file_bytes).decode("utf-8"),
+        "DataLen": len(file_bytes),
     }
-    auth = QiniuMacAuth(access_key, secret_key)
-    ret, response_info = _post_with_qiniu_auth(url, body, auth)
 
-    # 403 通常是账号或接口权限问题，保留 req_id 方便七牛工单排查。
-    if response_info.status_code != 200:
-        error_text = getattr(response_info, "text_body", "") or response_info.error or "七牛 ASR 请求失败"
-        if response_info.status_code == 403:
-            error_text = "七牛返回 403：请检查 AK/SK 是否正确、账户是否已实名/有余额，以及短语音听写服务权限是否已开通"
-        req_id = getattr(response_info, "req_id", "")
-        if req_id:
-            error_text = f"{error_text}，req_id={req_id}"
-        raise ValueError(f"七牛 ASR 请求失败：{error_text}")
-    if not ret:
-        raise ValueError("七牛 ASR 返回为空")
-    if ret.get("rtn") != 0:
-        raise ValueError(f"七牛 ASR 识别失败：{ret.get('message', '未知错误')}")
+    try:
+        response = client.call_json("SentenceRecognition", params)
+    except TencentCloudSDKException as exc:
+        raise ValueError(f"腾讯云 ASR 请求失败：{exc}") from exc
 
-    text = ret.get("resultText", "")
-    if not text:
-        raise ValueError("七牛 ASR 返回空识别文本，请确认音频有声音且格式受支持")
+    result = response.get("Result", "")
+    if not result:
+        request_id = response.get("RequestId", "")
+        raise ValueError(f"腾讯云 ASR 返回空识别文本，request_id={request_id}")
 
     return {
         "success": True,
-        "text": text,
+        "text": result,
         "mock": False,
     }
 
 
-async def qiniu_asr(file_bytes: bytes, filename: str) -> dict:
+async def tencent_asr(file_bytes: bytes, filename: str) -> dict:
     if not file_bytes:
         raise ValueError("上传音频为空")
-    # requests 是同步库，放到线程里执行，避免阻塞 FastAPI 事件循环。
-    return await asyncio.to_thread(_qiniu_asr_request, file_bytes)
+    # 腾讯云 SDK 是同步调用，放到线程里执行，避免阻塞 FastAPI 事件循环。
+    return await asyncio.to_thread(_tencent_asr_request, file_bytes, filename)
 
 
 async def recognize_audio(file_bytes: bytes, filename: str) -> dict:
     if os.getenv("ASR_MOCK", "true").lower() == "true":
         return mock_asr()
-    return await qiniu_asr(file_bytes, filename)
+    return await tencent_asr(file_bytes, filename)

@@ -171,7 +171,7 @@ async function startRecording() {
   errorMessage.value = ''
   voiceStatus.value = ''
   try {
-    // 直接采集 PCM 数据并编码成 WAV，兼容七牛短语音听写支持的格式。
+    // 直接采集 PCM 数据并编码成 WAV，兼容云端一句话识别接口支持的格式。
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
     audioContext = new (window.AudioContext || window.webkitAudioContext)()
     recordingSampleRate = audioContext.sampleRate
@@ -226,7 +226,7 @@ async function recognizeFile(file) {
     const { data } = await uploadAudio(file)
     recognizedText.value = data.text
     commandText.value = data.text
-    voiceStatus.value = data.mock ? 'mock 语音识别完成' : '七牛语音识别完成'
+    voiceStatus.value = data.mock ? 'mock 语音识别完成' : '腾讯云语音识别完成'
     ElMessage.success(data.mock ? 'mock 语音识别完成' : '语音识别完成')
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || '语音识别失败'
