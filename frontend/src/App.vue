@@ -23,21 +23,9 @@ let recordingSampleRate = 44100
 let speechRecognition = null
 let browserSpeechText = ''
 
-const speechCorrections = {
-  开主会: '开组会',
-  主会: '组会'
-}
-
 function formatTime(value) {
   if (!value) return '-'
   return value.replace('T', ' ').slice(0, 19)
-}
-
-function normalizeSpeechText(text) {
-  return Object.entries(speechCorrections).reduce(
-    (result, [source, target]) => result.replaceAll(source, target),
-    text.trim()
-  )
 }
 
 async function loadEvents() {
@@ -138,9 +126,8 @@ async function stopRecording() {
   await audioContext?.close()
 
   if (browserSpeechText.trim()) {
-    const normalizedText = normalizeSpeechText(browserSpeechText)
-    recognizedText.value = normalizedText
-    commandText.value = normalizedText
+    recognizedText.value = browserSpeechText.trim()
+    commandText.value = browserSpeechText.trim()
     voiceStatus.value = '浏览器语音识别完成'
     resetAudioState()
     ElMessage.success('语音识别完成')
@@ -180,7 +167,7 @@ function startBrowserSpeechRecognition() {
     for (let i = 0; i < event.results.length; i += 1) {
       text += event.results[i][0].transcript
     }
-    browserSpeechText = normalizeSpeechText(text)
+    browserSpeechText = text.trim()
     recognizedText.value = browserSpeechText
     commandText.value = browserSpeechText
     voiceStatus.value = text ? '已识别到语音文本' : '正在听'
