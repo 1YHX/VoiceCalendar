@@ -9,5 +9,5 @@ env/
 node_modules/
 dist/
 .vite/
+.vscode/
 npm-debug.log*
-
