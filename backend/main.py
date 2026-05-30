@@ -9,6 +9,7 @@ from schemas import AsrResponse, CommandRequest, CommandResponse, EventCreate, E
 from services.asr_service import recognize_audio
 from services.calendar_service import create_event, delete_event, list_events, parse_datetime
 from services.deepseek_service import parse_calendar_command
+from services.text_normalizer import normalize_asr_text
 
 
 app = FastAPI(title="VoiceCalendar API")
@@ -34,8 +35,9 @@ def health():
 
 @app.post("/api/command", response_model=CommandResponse)
 async def command(payload: CommandRequest, db: Session = Depends(get_db)):
+    command_text = normalize_asr_text(payload.text)
     try:
-        parsed = await parse_calendar_command(payload.text, datetime.now())
+        parsed = await parse_calendar_command(command_text, datetime.now())
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -51,7 +53,7 @@ async def command(payload: CommandRequest, db: Session = Depends(get_db)):
             start_time=parse_datetime(parsed.start_time),
             end_time=parse_datetime(parsed.end_time),
             reminder_minutes=parsed.reminder_minutes,
-            raw_text=payload.text,
+            raw_text=command_text,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"时间格式错误：{exc}") from exc
@@ -79,6 +81,8 @@ async def asr(file: UploadFile = File(...)):
         result = await recognize_audio(file_bytes, file.filename or "audio")
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if result.get("text"):
+        result["text"] = normalize_asr_text(result["text"])
     if not result.get("success"):
         raise HTTPException(status_code=501, detail=result.get("message", "ASR 未启用"))
     return result

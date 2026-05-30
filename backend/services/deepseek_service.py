@@ -74,8 +74,8 @@ def _normalize_hour(text: str) -> int | None:
 
 
 def _extract_title(text: str) -> str:
-    title = re.sub(r".*?提醒我", "", text).strip()
-    title = re.sub(r"^(今天|明天|后天)?(上午|下午|晚上|中午|早上)?[一二两三四五六七八九十\d]{1,2}点(半)?", "", title)
+    title = re.sub(r"^.*?提醒我", "", text).strip()
+    title = re.sub(r"(今天|明天|后天)?(上午|下午|晚上|中午|早上)?[一二两三四五六七八九十\d]{1,2}点(半)?", "", title)
     return title.strip(" ，。") or "未命名日程"
 
 
@@ -143,4 +143,3 @@ async def parse_calendar_command(text: str, now: datetime | None = None) -> Pars
         return ParsedCommand(**_extract_json(content))
     except Exception as exc:
         raise ValueError(f"DeepSeek 解析失败：{exc}") from exc
-
