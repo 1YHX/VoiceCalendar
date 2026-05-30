@@ -13,8 +13,12 @@ const listLoading = ref(false)
 const asrLoading = ref(false)
 const recording = ref(false)
 const errorMessage = ref('')
-let mediaRecorder = null
-let recordedChunks = []
+let audioContext = null
+let audioSource = null
+let audioProcessor = null
+let micStream = null
+let recordingBuffers = []
+let recordingSampleRate = 44100
 
 function formatTime(value) {
   if (!value) return '-'
@@ -83,21 +87,19 @@ async function startRecording() {
   }
   errorMessage.value = ''
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    recordedChunks = []
-    mediaRecorder = new MediaRecorder(stream)
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) recordedChunks.push(event.data)
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    audioContext = new (window.AudioContext || window.webkitAudioContext)()
+    recordingSampleRate = audioContext.sampleRate
+    recordingBuffers = []
+    audioSource = audioContext.createMediaStreamSource(micStream)
+    audioProcessor = audioContext.createScriptProcessor(4096, 1, 1)
+    audioProcessor.onaudioprocess = (event) => {
+      if (!recording.value) return
+      const input = event.inputBuffer.getChannelData(0)
+      recordingBuffers.push(new Float32Array(input))
     }
-    mediaRecorder.onstop = async () => {
-      stream.getTracks().forEach((track) => track.stop())
-      const audioBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' })
-      const audioFile = new File([audioBlob], `voice-calendar-${Date.now()}.webm`, {
-        type: audioBlob.type
-      })
-      await recognizeFile(audioFile)
-    }
-    mediaRecorder.start()
+    audioSource.connect(audioProcessor)
+    audioProcessor.connect(audioContext.destination)
     recording.value = true
     ElMessage.success('开始录音')
   } catch (error) {
@@ -106,10 +108,24 @@ async function startRecording() {
   }
 }
 
-function stopRecording() {
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') return
+async function stopRecording() {
+  if (!recording.value) return
   recording.value = false
-  mediaRecorder.stop()
+  audioProcessor?.disconnect()
+  audioSource?.disconnect()
+  micStream?.getTracks().forEach((track) => track.stop())
+  await audioContext?.close()
+
+  const wavBlob = encodeWav(recordingBuffers, recordingSampleRate)
+  const audioFile = new File([wavBlob], `voice-calendar-${Date.now()}.wav`, {
+    type: 'audio/wav'
+  })
+  await recognizeFile(audioFile)
+  audioContext = null
+  audioSource = null
+  audioProcessor = null
+  micStream = null
+  recordingBuffers = []
 }
 
 async function recognizeFile(file) {
@@ -126,6 +142,53 @@ async function recognizeFile(file) {
   } finally {
     asrLoading.value = false
   }
+}
+
+function mergeBuffers(buffers) {
+  const length = buffers.reduce((sum, buffer) => sum + buffer.length, 0)
+  const result = new Float32Array(length)
+  let offset = 0
+  buffers.forEach((buffer) => {
+    result.set(buffer, offset)
+    offset += buffer.length
+  })
+  return result
+}
+
+function writeString(view, offset, value) {
+  for (let i = 0; i < value.length; i += 1) {
+    view.setUint8(offset + i, value.charCodeAt(i))
+  }
+}
+
+function encodeWav(buffers, sampleRate) {
+  const samples = mergeBuffers(buffers)
+  const bytesPerSample = 2
+  const buffer = new ArrayBuffer(44 + samples.length * bytesPerSample)
+  const view = new DataView(buffer)
+
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, 36 + samples.length * bytesPerSample, true)
+  writeString(view, 8, 'WAVE')
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * bytesPerSample, true)
+  view.setUint16(32, bytesPerSample, true)
+  view.setUint16(34, 16, true)
+  writeString(view, 36, 'data')
+  view.setUint32(40, samples.length * bytesPerSample, true)
+
+  let offset = 44
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[i]))
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+    offset += 2
+  }
+
+  return new Blob([view], { type: 'audio/wav' })
 }
 
 async function removeEvent(id) {
@@ -200,7 +263,7 @@ onMounted(loadEvents)
       <section class="result-grid">
         <div class="panel">
           <h2>识别文本</h2>
-          <p class="recognized">{{ recognizedText || '上传音频后显示 mock ASR 文本' }}</p>
+          <p class="recognized">{{ recognizedText || '语音输入或上传音频后显示识别文本' }}</p>
         </div>
         <div class="panel">
           <h2>解析结果</h2>
