@@ -49,9 +49,13 @@ def _qiniu_asr_request(file_bytes: bytes) -> dict:
     if ret.get("rtn") != 0:
         raise ValueError(f"七牛 ASR 识别失败：{ret.get('message', '未知错误')}")
 
+    text = ret.get("resultText", "")
+    if not text:
+        raise ValueError("七牛 ASR 返回空识别文本，请确认音频有声音且格式受支持")
+
     return {
         "success": True,
-        "text": ret.get("resultText", ""),
+        "text": text,
         "mock": False,
     }
 
