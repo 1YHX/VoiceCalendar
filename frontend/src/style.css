@@ -71,6 +71,12 @@ h1 {
   flex-wrap: wrap;
 }
 
+.voice-status {
+  margin-top: 10px;
+  color: #475569;
+  font-size: 14px;
+}
+
 .status-alert {
   margin-top: 16px;
 }
@@ -151,4 +157,3 @@ pre {
     font-size: 28px;
   }
 }
-

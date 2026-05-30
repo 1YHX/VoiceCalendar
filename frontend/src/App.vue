@@ -13,12 +13,15 @@ const listLoading = ref(false)
 const asrLoading = ref(false)
 const recording = ref(false)
 const errorMessage = ref('')
+const voiceStatus = ref('')
 let audioContext = null
 let audioSource = null
 let audioProcessor = null
 let micStream = null
 let recordingBuffers = []
 let recordingSampleRate = 44100
+let speechRecognition = null
+let browserSpeechText = ''
 
 function formatTime(value) {
   if (!value) return '-'
@@ -86,7 +89,10 @@ async function startRecording() {
     return
   }
   errorMessage.value = ''
+  voiceStatus.value = ''
+  browserSpeechText = ''
   try {
+    startBrowserSpeechRecognition()
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
     audioContext = new (window.AudioContext || window.webkitAudioContext)()
     recordingSampleRate = audioContext.sampleRate
@@ -101,8 +107,10 @@ async function startRecording() {
     audioSource.connect(audioProcessor)
     audioProcessor.connect(audioContext.destination)
     recording.value = true
-    ElMessage.success('开始录音')
+    voiceStatus.value = '正在录音，请说话'
+    ElMessage.success('开始语音输入')
   } catch (error) {
+    stopBrowserSpeechRecognition()
     errorMessage.value = '无法访问麦克风，请检查浏览器权限'
     ElMessage.error(errorMessage.value)
   }
@@ -111,21 +119,73 @@ async function startRecording() {
 async function stopRecording() {
   if (!recording.value) return
   recording.value = false
+  stopBrowserSpeechRecognition()
   audioProcessor?.disconnect()
   audioSource?.disconnect()
   micStream?.getTracks().forEach((track) => track.stop())
   await audioContext?.close()
 
+  if (browserSpeechText.trim()) {
+    recognizedText.value = browserSpeechText.trim()
+    commandText.value = browserSpeechText.trim()
+    voiceStatus.value = '浏览器语音识别完成'
+    resetAudioState()
+    ElMessage.success('语音识别完成')
+    return
+  }
+
   const wavBlob = encodeWav(recordingBuffers, recordingSampleRate)
   const audioFile = new File([wavBlob], `voice-calendar-${Date.now()}.wav`, {
     type: 'audio/wav'
   })
+  voiceStatus.value = `浏览器未返回文本，已上传 ${Math.round(audioFile.size / 1024)} KB 录音到七牛识别`
   await recognizeFile(audioFile)
+  resetAudioState()
+}
+
+function resetAudioState() {
   audioContext = null
   audioSource = null
   audioProcessor = null
   micStream = null
   recordingBuffers = []
+}
+
+function startBrowserSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SpeechRecognition) {
+    voiceStatus.value = '当前浏览器不支持原生语音识别，将使用七牛 ASR'
+    return
+  }
+
+  speechRecognition = new SpeechRecognition()
+  speechRecognition.lang = 'zh-CN'
+  speechRecognition.continuous = true
+  speechRecognition.interimResults = true
+  speechRecognition.onresult = (event) => {
+    let text = ''
+    for (let i = 0; i < event.results.length; i += 1) {
+      text += event.results[i][0].transcript
+    }
+    browserSpeechText = text
+    recognizedText.value = text
+    commandText.value = text
+    voiceStatus.value = text ? '已识别到语音文本' : '正在听'
+  }
+  speechRecognition.onerror = () => {
+    voiceStatus.value = '浏览器语音识别不可用，将使用七牛 ASR'
+  }
+  speechRecognition.start()
+}
+
+function stopBrowserSpeechRecognition() {
+  if (!speechRecognition) return
+  try {
+    speechRecognition.stop()
+  } catch (error) {
+    // Ignore stop errors from already-stopped browser recognizers.
+  }
+  speechRecognition = null
 }
 
 async function recognizeFile(file) {
@@ -135,9 +195,11 @@ async function recognizeFile(file) {
     const { data } = await uploadAudio(file)
     recognizedText.value = data.text
     commandText.value = data.text
+    voiceStatus.value = data.mock ? 'mock 语音识别完成' : '七牛语音识别完成'
     ElMessage.success(data.mock ? 'mock 语音识别完成' : '语音识别完成')
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || '语音识别失败'
+    voiceStatus.value = errorMessage.value
     ElMessage.error(errorMessage.value)
   } finally {
     asrLoading.value = false
@@ -249,6 +311,7 @@ onMounted(loadEvents)
             <el-button :loading="asrLoading">上传音频文件</el-button>
           </el-upload>
         </div>
+        <p v-if="voiceStatus" class="voice-status">{{ voiceStatus }}</p>
       </section>
 
       <el-alert
