@@ -52,6 +52,7 @@ h1 {
 
 .command-panel,
 .panel,
+.calendar-panel,
 .events-panel {
   border: 1px solid #dbe3ee;
   border-radius: 8px;
@@ -122,6 +123,11 @@ pre {
   padding: 18px;
 }
 
+.calendar-panel {
+  margin-top: 16px;
+  padding: 18px;
+}
+
 .section-head {
   display: flex;
   align-items: center;
@@ -133,6 +139,73 @@ pre {
 .section-head span {
   color: #64748b;
   font-size: 14px;
+}
+
+.week-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.day-column {
+  min-height: 150px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.day-head span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.day-head strong {
+  color: #111827;
+  font-size: 15px;
+}
+
+.day-events {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.calendar-event {
+  padding: 8px;
+  border-left: 3px solid #2563eb;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.calendar-event span {
+  display: block;
+  margin-bottom: 4px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.calendar-event p {
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.empty-day {
+  color: #94a3b8;
+  font-size: 13px;
 }
 
 @media (max-width: 760px) {
@@ -151,6 +224,10 @@ pre {
 
   .panel + .panel {
     margin-top: 16px;
+  }
+
+  .week-calendar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   h1 {

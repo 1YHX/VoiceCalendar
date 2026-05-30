@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Delete, Microphone, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { createEventByCommand, deleteEvent, getEvents, uploadAudio } from './api/calendar'
@@ -27,6 +27,36 @@ function formatTime(value) {
   if (!value) return '-'
   return value.replace('T', ' ').slice(0, 19)
 }
+
+function formatClock(value) {
+  if (!value) return '--:--'
+  return value.replace('T', ' ').slice(11, 16)
+}
+
+function dateKey(value) {
+  return value.replace('T', ' ').slice(0, 10)
+}
+
+function formatMonthDay(date) {
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
+const weekDays = computed(() => {
+  const labels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today)
+    date.setDate(today.getDate() + index)
+    const key = date.toISOString().slice(0, 10)
+    return {
+      key,
+      label: index === 0 ? '今天' : labels[date.getDay()],
+      dateText: formatMonthDay(date),
+      events: events.value.filter((event) => dateKey(event.start_time) === key)
+    }
+  })
+})
 
 async function loadEvents() {
   listLoading.value = true
@@ -331,6 +361,28 @@ onMounted(loadEvents)
         <div class="panel">
           <h2>解析结果</h2>
           <pre>{{ parsed ? JSON.stringify(parsed, null, 2) : '执行指令后显示 DeepSeek 解析结果' }}</pre>
+        </div>
+      </section>
+
+      <section class="calendar-panel">
+        <div class="section-head">
+          <h2>近 7 天日历</h2>
+          <span>{{ events.length }} 条日程</span>
+        </div>
+        <div class="week-calendar">
+          <div v-for="day in weekDays" :key="day.key" class="day-column">
+            <div class="day-head">
+              <span>{{ day.label }}</span>
+              <strong>{{ day.dateText }}</strong>
+            </div>
+            <div class="day-events">
+              <div v-for="event in day.events" :key="event.id" class="calendar-event">
+                <span>{{ formatClock(event.start_time) }}</span>
+                <p>{{ event.title }}</p>
+              </div>
+              <p v-if="day.events.length === 0" class="empty-day">暂无</p>
+            </div>
+          </div>
         </div>
       </section>
 
