@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { Delete, Microphone, Refresh, VideoPlay } from '@element-plus/icons-vue'
+import { Delete, Microphone, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { createEventByCommand, deleteEvent, getEvents, uploadAudio } from './api/calendar'
 
@@ -11,7 +11,10 @@ const events = ref([])
 const loading = ref(false)
 const listLoading = ref(false)
 const asrLoading = ref(false)
+const recording = ref(false)
 const errorMessage = ref('')
+let mediaRecorder = null
+let recordedChunks = []
 
 function formatTime(value) {
   if (!value) return '-'
@@ -72,6 +75,59 @@ async function handleUpload(uploadFile) {
   }
 }
 
+async function startRecording() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    errorMessage.value = '当前浏览器不支持麦克风录音'
+    ElMessage.error(errorMessage.value)
+    return
+  }
+  errorMessage.value = ''
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    recordedChunks = []
+    mediaRecorder = new MediaRecorder(stream)
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) recordedChunks.push(event.data)
+    }
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop())
+      const audioBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' })
+      const audioFile = new File([audioBlob], `voice-calendar-${Date.now()}.webm`, {
+        type: audioBlob.type
+      })
+      await recognizeFile(audioFile)
+    }
+    mediaRecorder.start()
+    recording.value = true
+    ElMessage.success('开始录音')
+  } catch (error) {
+    errorMessage.value = '无法访问麦克风，请检查浏览器权限'
+    ElMessage.error(errorMessage.value)
+  }
+}
+
+function stopRecording() {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return
+  recording.value = false
+  mediaRecorder.stop()
+}
+
+async function recognizeFile(file) {
+  asrLoading.value = true
+  errorMessage.value = ''
+  try {
+    const { data } = await uploadAudio(file)
+    recognizedText.value = data.text
+    commandText.value = data.text
+    ElMessage.success(data.mock ? 'mock 语音识别完成' : '语音识别完成')
+  } catch (error) {
+    errorMessage.value = error.response?.data?.detail || '语音识别失败'
+    ElMessage.error(errorMessage.value)
+  } finally {
+    asrLoading.value = false
+  }
+}
+
 async function removeEvent(id) {
   try {
     await deleteEvent(id)
@@ -108,6 +164,18 @@ onMounted(loadEvents)
           <el-button type="primary" :icon="VideoPlay" :loading="loading" @click="runCommand">
             执行指令
           </el-button>
+          <el-button
+            v-if="!recording"
+            type="success"
+            :icon="Microphone"
+            :loading="asrLoading"
+            @click="startRecording"
+          >
+            开始语音输入
+          </el-button>
+          <el-button v-else type="danger" :icon="VideoPause" @click="stopRecording">
+            停止录音
+          </el-button>
           <el-upload
             action="#"
             :auto-upload="false"
@@ -115,7 +183,7 @@ onMounted(loadEvents)
             :on-change="handleUpload"
             accept="audio/*"
           >
-            <el-button :icon="Microphone" :loading="asrLoading">上传音频</el-button>
+            <el-button :loading="asrLoading">上传音频文件</el-button>
           </el-upload>
         </div>
       </section>
@@ -167,4 +235,3 @@ onMounted(loadEvents)
     </section>
   </main>
 </template>
-
