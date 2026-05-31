@@ -26,6 +26,9 @@ const recognizedText = ref('')
 const parsed = ref(null)
 const commandResults = ref([])
 const hasQueryResult = ref(false)
+const lastCommandText = ref('')
+const lastExecutionMessage = ref('')
+const lastMatchedEvents = ref([])
 const events = ref([])
 const loading = ref(false)
 const listLoading = ref(false)
@@ -117,6 +120,19 @@ function getLunarInfo(date) {
 const calendarTitle = computed(() => {
   const date = calendarCursor.value
   return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`
+})
+
+const agentDecisionSteps = computed(() => {
+  if (!parsed.value && !lastExecutionMessage.value) return []
+  const matched = lastMatchedEvents.value.length
+    ? lastMatchedEvents.value.map((event) => event.title).join('、')
+    : '无'
+  return [
+    { label: '用户指令', value: lastCommandText.value || commandText.value || '-' },
+    { label: 'DeepSeek 意图', value: parsed.value?.intent || '-' },
+    { label: '匹配日程', value: matched },
+    { label: '执行结果', value: lastExecutionMessage.value || '-' },
+  ]
 })
 
 const monthCells = computed(() => {
@@ -305,11 +321,16 @@ async function executeCommand(text, source = 'manual') {
   parsed.value = null
   commandResults.value = []
   hasQueryResult.value = false
+  lastCommandText.value = command
+  lastExecutionMessage.value = '正在解析并执行'
+  lastMatchedEvents.value = []
   try {
     const { data } = await executeCalendarCommand(command)
     parsed.value = data.parsed
     commandResults.value = data.events || []
     hasQueryResult.value = data.parsed?.intent === 'query'
+    lastExecutionMessage.value = data.message
+    lastMatchedEvents.value = data.events?.length ? data.events : data.event ? [data.event] : []
     if (data.success) {
       ElMessage.success(data.message)
       const speechText = buildOperationSpeech(data)
@@ -322,11 +343,14 @@ async function executeCommand(text, source = 'manual') {
       }
     } else {
       errorMessage.value = data.message
+      lastMatchedEvents.value = []
       ElMessage.warning(data.message)
       speakOperation(data.message)
     }
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || '执行指令失败'
+    lastExecutionMessage.value = errorMessage.value
+    lastMatchedEvents.value = []
     ElMessage.error(errorMessage.value)
     speakOperation(errorMessage.value)
   } finally {
@@ -619,6 +643,19 @@ onUnmounted(() => {
         <div class="panel">
           <h2>解析结果</h2>
           <pre>{{ parsed ? JSON.stringify(parsed, null, 2) : '执行指令后显示 DeepSeek 解析结果' }}</pre>
+        </div>
+      </section>
+
+      <section v-if="agentDecisionSteps.length" class="agent-panel">
+        <div class="section-head">
+          <h2>AI 决策过程</h2>
+          <span>DeepSeek + 本地日程上下文</span>
+        </div>
+        <div class="agent-steps">
+          <div v-for="step in agentDecisionSteps" :key="step.label" class="agent-step">
+            <span>{{ step.label }}</span>
+            <strong>{{ step.value }}</strong>
+          </div>
         </div>
       </section>
 

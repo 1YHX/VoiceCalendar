@@ -60,6 +60,7 @@ h1 {
 
 .command-panel,
 .panel,
+.agent-panel,
 .query-panel,
 .calendar-panel,
 .events-panel {
@@ -135,6 +136,40 @@ pre {
 .query-panel {
   margin-top: 16px;
   padding: 18px;
+}
+
+.agent-panel {
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.agent-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agent-step {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  background: #eff6ff;
+}
+
+.agent-step span {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.agent-step strong {
+  display: block;
+  color: #1e3a8a;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .query-list {
@@ -351,6 +386,10 @@ pre {
   .query-item {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .agent-steps {
+    grid-template-columns: 1fr;
   }
 
   .section-head {

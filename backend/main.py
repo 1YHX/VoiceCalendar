@@ -172,7 +172,7 @@ async def command(payload: CommandRequest, db: Session = Depends(get_db)):
             return CommandResponse(success=False, message="请说清楚要删除哪条日程", parsed=parsed)
 
         delete_event(db, target.id)
-        return CommandResponse(success=True, message=f"已删除日程：{target.title}", parsed=parsed)
+        return CommandResponse(success=True, message=f"已删除日程：{target.title}", parsed=parsed, event=target)
 
     if parsed.intent != "create":
         return CommandResponse(success=False, message="当前支持创建、查询、删除日程", parsed=parsed)
