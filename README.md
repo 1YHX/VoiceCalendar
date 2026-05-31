@@ -2,6 +2,10 @@
 
 VoiceCalendar 是一个语音交互式智能日历工具，支持通过中文自然语言文本或麦克风录音管理日程。前端只负责录音和提交文本；后端会把用户指令和当前本地日程上下文一起交给 DeepSeek，由 DeepSeek 解析添加、查看、删除等操作后再执行。
 
+## 演示视频
+
+B 站演示地址：https://www.bilibili.com/video/BV15SVJ6mEgi/?vd_source=7647988dfa6fcd4a1c6f6042248bd18f
+
 ## 已完成功能
 
 - 文本或语音指令创建日程
