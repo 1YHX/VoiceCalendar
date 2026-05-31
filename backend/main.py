@@ -14,6 +14,7 @@ from schemas import (
     EventResponse,
     ReminderSpeechRequest,
     ReminderSpeechResponse,
+    SpeechRequest,
 )
 from services.asr_service import recognize_audio
 from services.calendar_service import (
@@ -229,3 +230,13 @@ async def reminder_speech(payload: ReminderSpeechRequest):
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return ReminderSpeechResponse(success=True, text=reminder_text, **audio)
+
+
+@app.post("/api/speech", response_model=ReminderSpeechResponse)
+async def speech(payload: SpeechRequest):
+    text = payload.text.strip()
+    try:
+        audio = await synthesize_speech(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ReminderSpeechResponse(success=True, text=text, **audio)

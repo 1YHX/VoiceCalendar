@@ -14,6 +14,7 @@ import { ElMessage, ElNotification } from 'element-plus'
 import { Solar } from 'lunar-javascript'
 import {
   createReminderSpeech,
+  createSpeech,
   deleteEvent,
   executeCalendarCommand,
   getEvents,
@@ -153,7 +154,11 @@ function backToToday() {
   calendarCursor.value = new Date()
 }
 
-function getRemindedIds() {
+function getReminderKey(event) {
+  return [event.id, event.title, event.start_time, event.reminder_minutes].join('|')
+}
+
+function getRemindedKeys() {
   try {
     return new Set(JSON.parse(localStorage.getItem(REMINDED_STORAGE_KEY) || '[]'))
   } catch {
@@ -161,10 +166,21 @@ function getRemindedIds() {
   }
 }
 
-function markReminded(id) {
-  const ids = getRemindedIds()
-  ids.add(id)
-  localStorage.setItem(REMINDED_STORAGE_KEY, JSON.stringify([...ids]))
+function markReminded(event) {
+  const keys = getRemindedKeys()
+  keys.add(getReminderKey(event))
+  localStorage.setItem(REMINDED_STORAGE_KEY, JSON.stringify([...keys]))
+}
+
+function clearReminderState(event) {
+  const key = getReminderKey(event)
+  const keys = getRemindedKeys()
+  keys.delete(key)
+  localStorage.setItem(REMINDED_STORAGE_KEY, JSON.stringify([...keys]))
+  if (reminderTimers.has(key)) {
+    clearTimeout(reminderTimers.get(key))
+    reminderTimers.delete(key)
+  }
 }
 
 async function playReminderSpeech(event) {
@@ -173,14 +189,36 @@ async function playReminderSpeech(event) {
     const audio = new Audio(`data:${data.audio_mime};base64,${data.audio_base64}`)
     await audio.play()
   } catch (error) {
-    const message = error.response?.data?.detail || '语音提醒播放失败'
-    ElMessage.warning(message)
+    const fallback = `日程提醒，${formatClock(event.start_time)}，${event.title}`
+    voiceStatus.value = '云端语音提醒失败，已使用浏览器语音播报'
+    speakWithBrowser(fallback)
+  }
+}
+
+function speakWithBrowser(text) {
+  if (!window.speechSynthesis || !text) return
+  window.speechSynthesis.cancel()
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.lang = 'zh-CN'
+  utterance.rate = 1
+  window.speechSynthesis.speak(utterance)
+}
+
+async function speakOperation(text) {
+  if (!text) return
+  try {
+    const { data } = await createSpeech(text)
+    const audio = new Audio(`data:${data.audio_mime};base64,${data.audio_base64}`)
+    await audio.play()
+  } catch {
+    speakWithBrowser(text)
   }
 }
 
 function showReminder(event) {
-  markReminded(event.id)
+  markReminded(event)
   const body = `${formatClock(event.start_time)} ${event.title}`
+  voiceStatus.value = `日程提醒：${body}`
 
   ElNotification({
     title: '日程提醒',
@@ -207,13 +245,14 @@ function clearReminderTimers() {
 function scheduleReminders() {
   clearReminderTimers()
   const now = Date.now()
-  const remindedIds = getRemindedIds()
+  const remindedKeys = getRemindedKeys()
 
   events.value.forEach((event) => {
-    if (remindedIds.has(event.id)) return
+    if (remindedKeys.has(getReminderKey(event))) return
     const reminderAt = getReminderAt(event)
     const startAt = parseLocalDateTime(event.start_time)
-    if (!reminderAt || !startAt || startAt.getTime() <= now) return
+    const endAt = parseLocalDateTime(event.end_time)
+    if (!reminderAt || !startAt || (endAt && endAt.getTime() <= now)) return
 
     const delay = reminderAt.getTime() - now
     if (delay <= 0) {
@@ -221,7 +260,7 @@ function scheduleReminders() {
       return
     }
 
-    reminderTimers.set(event.id, window.setTimeout(() => showReminder(event), delay))
+    reminderTimers.set(getReminderKey(event), window.setTimeout(() => showReminder(event), delay))
   })
 }
 
@@ -273,6 +312,8 @@ async function executeCommand(text, source = 'manual') {
     hasQueryResult.value = data.parsed?.intent === 'query'
     if (data.success) {
       ElMessage.success(data.message)
+      const speechText = buildOperationSpeech(data)
+      speakOperation(speechText)
       if (source === 'voice') {
         voiceStatus.value = `已执行语音指令：${data.message}`
       }
@@ -282,13 +323,31 @@ async function executeCommand(text, source = 'manual') {
     } else {
       errorMessage.value = data.message
       ElMessage.warning(data.message)
+      speakOperation(data.message)
     }
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || '执行指令失败'
     ElMessage.error(errorMessage.value)
+    speakOperation(errorMessage.value)
   } finally {
     loading.value = false
   }
+}
+
+function buildOperationSpeech(data) {
+  const intent = data.parsed?.intent
+  if (intent === 'create' && data.event) {
+    return `已创建日程，${data.event.title}，时间是${formatTime(data.event.start_time)}。`
+  }
+  if (intent === 'query') {
+    return data.events?.length
+      ? `已找到${data.events.length}条日程。`
+      : '没有找到符合条件的日程。'
+  }
+  if (intent === 'delete') {
+    return data.message
+  }
+  return data.message
 }
 
 async function runCommand() {
@@ -455,13 +514,24 @@ function encodeWav(buffers, sampleRate) {
   return new Blob([view], { type: 'audio/wav' })
 }
 
-async function removeEvent(id) {
+async function removeEvent(row) {
   try {
-    await deleteEvent(id)
+    await deleteEvent(row.id)
+    clearReminderState(row)
     ElMessage.success('日程已删除')
+    speakOperation(`已删除日程，${row.title}。`)
     await loadEvents()
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '删除失败')
+    if (error.response?.status === 404) {
+      clearReminderState(row)
+      ElMessage.warning('日程已不存在，已刷新')
+      speakOperation('日程已不存在，已刷新。')
+      await loadEvents()
+      return
+    }
+    const message = error.response?.data?.detail || '删除失败'
+    ElMessage.error(message)
+    speakOperation(message)
   }
 }
 
@@ -630,7 +700,7 @@ onUnmounted(() => {
           <el-table-column prop="raw_text" label="原始输入" min-width="220" />
           <el-table-column label="操作" width="100" fixed="right">
             <template #default="{ row }">
-              <el-button type="danger" :icon="Delete" circle plain @click="removeEvent(row.id)" />
+              <el-button type="danger" :icon="Delete" circle plain @click="removeEvent(row)" />
             </template>
           </el-table-column>
         </el-table>

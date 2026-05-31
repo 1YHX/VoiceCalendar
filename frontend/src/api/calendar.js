@@ -28,3 +28,7 @@ export function uploadAudio(file) {
 export function createReminderSpeech(event) {
   return api.post('/reminder-speech', { event })
 }
+
+export function createSpeech(text) {
+  return api.post('/speech', { text })
+}

@@ -59,6 +59,10 @@ class ReminderSpeechRequest(BaseModel):
     event: EventResponse
 
 
+class SpeechRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
 class ReminderSpeechResponse(BaseModel):
     success: bool
     text: str
