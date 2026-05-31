@@ -45,8 +45,10 @@ let micStream = null
 let recordingBuffers = []
 let recordingSampleRate = 44100
 let reminderTimers = new Map()
+let activeSpeech = null
 const TENCENT_ASR_SAMPLE_RATE = 16000
 const REMINDED_STORAGE_KEY = 'voice-calendar-reminded-ids'
+const IMMEDIATE_REMINDER_DELAY_MS = 4000
 
 function formatTime(value) {
   if (!value) return '-'
@@ -214,6 +216,7 @@ async function playReminderSpeech(event) {
 function speakWithBrowser(text) {
   if (!window.speechSynthesis || !text) return
   window.speechSynthesis.cancel()
+  activeSpeech?.pause()
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = 'zh-CN'
   utterance.rate = 1
@@ -225,6 +228,8 @@ async function speakOperation(text) {
   try {
     const { data } = await createSpeech(text)
     const audio = new Audio(`data:${data.audio_mime};base64,${data.audio_base64}`)
+    activeSpeech?.pause()
+    activeSpeech = audio
     await audio.play()
   } catch {
     speakWithBrowser(text)
@@ -272,7 +277,7 @@ function scheduleReminders() {
 
     const delay = reminderAt.getTime() - now
     if (delay <= 0) {
-      showReminder(event)
+      reminderTimers.set(getReminderKey(event), window.setTimeout(() => showReminder(event), IMMEDIATE_REMINDER_DELAY_MS))
       return
     }
 
