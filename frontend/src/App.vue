@@ -46,6 +46,7 @@ let recordingBuffers = []
 let recordingSampleRate = 44100
 let reminderTimers = new Map()
 let activeSpeech = null
+let speechQueue = Promise.resolve()
 const TENCENT_ASR_SAMPLE_RATE = 16000
 const REMINDED_STORAGE_KEY = 'voice-calendar-reminded-ids'
 const IMMEDIATE_REMINDER_DELAY_MS = 4000
@@ -202,38 +203,62 @@ function clearReminderState(event) {
 }
 
 async function playReminderSpeech(event) {
-  try {
-    const { data } = await createReminderSpeech(event)
-    const audio = new Audio(`data:${data.audio_mime};base64,${data.audio_base64}`)
-    await audio.play()
-  } catch (error) {
-    const fallback = `日程提醒，${formatClock(event.start_time)}，${event.title}`
-    voiceStatus.value = '云端语音提醒失败，已使用浏览器语音播报'
-    speakWithBrowser(fallback)
-  }
+  const fallback = `日程提醒，${formatClock(event.start_time)}，${event.title}`
+  queueSpeech(async () => {
+    try {
+      const { data } = await createReminderSpeech(event)
+      await playAudio(data.audio_base64, data.audio_mime)
+    } catch (error) {
+      voiceStatus.value = '云端语音提醒失败，已使用浏览器语音播报'
+      await speakWithBrowser(fallback)
+    }
+  })
+}
+
+function queueSpeech(task) {
+  speechQueue = speechQueue.then(task).catch(() => {})
+  return speechQueue
+}
+
+function playAudio(audioBase64, audioMime) {
+  return new Promise((resolve, reject) => {
+    window.speechSynthesis?.cancel()
+    activeSpeech?.pause()
+    const audio = new Audio(`data:${audioMime};base64,${audioBase64}`)
+    activeSpeech = audio
+    audio.onended = resolve
+    audio.onerror = reject
+    audio.play().catch(reject)
+  })
 }
 
 function speakWithBrowser(text) {
-  if (!window.speechSynthesis || !text) return
-  window.speechSynthesis.cancel()
-  activeSpeech?.pause()
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.lang = 'zh-CN'
-  utterance.rate = 1
-  window.speechSynthesis.speak(utterance)
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis || !text) {
+      resolve()
+      return
+    }
+    activeSpeech?.pause()
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'zh-CN'
+    utterance.rate = 1
+    utterance.onend = resolve
+    utterance.onerror = resolve
+    window.speechSynthesis.speak(utterance)
+  })
 }
 
 async function speakOperation(text) {
   if (!text) return
-  try {
-    const { data } = await createSpeech(text)
-    const audio = new Audio(`data:${data.audio_mime};base64,${data.audio_base64}`)
-    activeSpeech?.pause()
-    activeSpeech = audio
-    await audio.play()
-  } catch {
-    speakWithBrowser(text)
-  }
+  queueSpeech(async () => {
+    try {
+      const { data } = await createSpeech(text)
+      await playAudio(data.audio_base64, data.audio_mime)
+    } catch {
+      await speakWithBrowser(text)
+    }
+  })
 }
 
 function showReminder(event) {
