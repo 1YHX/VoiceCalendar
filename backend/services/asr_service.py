@@ -25,6 +25,10 @@ def _detect_voice_format(filename: str) -> str:
     return "wav"
 
 
+def _unwrap_tencent_response(response: dict) -> dict:
+    return response.get("Response", response)
+
+
 def _tencent_asr_request(file_bytes: bytes, filename: str) -> dict:
     secret_id = os.getenv("TENCENT_SECRET_ID", "")
     secret_key = os.getenv("TENCENT_SECRET_KEY", "")
@@ -61,9 +65,10 @@ def _tencent_asr_request(file_bytes: bytes, filename: str) -> dict:
     except TencentCloudSDKException as exc:
         raise ValueError(f"腾讯云 ASR 请求失败：{exc}") from exc
 
-    result = response.get("Result", "")
+    payload = _unwrap_tencent_response(response)
+    result = payload.get("Result", "")
     if not result:
-        request_id = response.get("RequestId", "")
+        request_id = payload.get("RequestId") or response.get("RequestId", "")
         raise ValueError(f"腾讯云 ASR 返回空识别文本，request_id={request_id}")
 
     return {

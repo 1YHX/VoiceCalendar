@@ -45,10 +45,10 @@ class CommandResponse(BaseModel):
     message: str
     parsed: ParsedCommand | None = None
     event: EventResponse | None = None
+    events: list[EventResponse] = Field(default_factory=list)
 
 
 class AsrResponse(BaseModel):
     success: bool
     text: str
     mock: bool
-

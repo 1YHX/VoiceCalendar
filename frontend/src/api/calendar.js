@@ -5,7 +5,7 @@ const api = axios.create({
   timeout: 30000
 })
 
-export function createEventByCommand(text) {
+export function executeCalendarCommand(text) {
   return api.post('/command', { text })
 }
 
@@ -24,4 +24,3 @@ export function uploadAudio(file) {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
-

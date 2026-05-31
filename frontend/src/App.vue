@@ -1,21 +1,24 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   ArrowLeft,
   ArrowRight,
+  Bell,
   Delete,
   Microphone,
   Refresh,
   VideoPause,
   VideoPlay
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import { Solar } from 'lunar-javascript'
-import { createEventByCommand, deleteEvent, getEvents, uploadAudio } from './api/calendar'
+import { deleteEvent, executeCalendarCommand, getEvents, uploadAudio } from './api/calendar'
 
 const commandText = ref('明天下午三点提醒我开会')
 const recognizedText = ref('')
 const parsed = ref(null)
+const commandResults = ref([])
+const hasQueryResult = ref(false)
 const events = ref([])
 const loading = ref(false)
 const listLoading = ref(false)
@@ -24,12 +27,16 @@ const recording = ref(false)
 const errorMessage = ref('')
 const voiceStatus = ref('')
 const calendarCursor = ref(new Date())
+const notificationPermission = ref('unsupported')
 let audioContext = null
 let audioSource = null
 let audioProcessor = null
 let micStream = null
 let recordingBuffers = []
 let recordingSampleRate = 44100
+let reminderTimers = new Map()
+const TENCENT_ASR_SAMPLE_RATE = 16000
+const REMINDED_STORAGE_KEY = 'voice-calendar-reminded-ids'
 
 function formatTime(value) {
   if (!value) return '-'
@@ -41,8 +48,40 @@ function formatClock(value) {
   return value.replace('T', ' ').slice(11, 16)
 }
 
+function formatReminder(row) {
+  const reminderAt = getReminderAt(row)
+  if (!reminderAt) return '-'
+  return formatTime(toLocalDateTimeString(reminderAt))
+}
+
 function dateKey(value) {
   return value.replace('T', ' ').slice(0, 10)
+}
+
+function parseLocalDateTime(value) {
+  if (!value) return null
+  const normalized = value.replace('T', ' ').slice(0, 19)
+  const [datePart, timePart = '00:00:00'] = normalized.split(' ')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hour = 0, minute = 0, second = 0] = timePart.split(':').map(Number)
+  if (!year || !month || !day) return null
+  return new Date(year, month - 1, day, hour, minute, second)
+}
+
+function toLocalDateTimeString(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  const second = String(date.getSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+}
+
+function getReminderAt(event) {
+  const start = parseLocalDateTime(event.start_time)
+  if (!start) return null
+  return new Date(start.getTime() - event.reminder_minutes * 60 * 1000)
 }
 
 function toLocalDateKey(date) {
@@ -108,11 +147,88 @@ function backToToday() {
   calendarCursor.value = new Date()
 }
 
+function getRemindedIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(REMINDED_STORAGE_KEY) || '[]'))
+  } catch {
+    return new Set()
+  }
+}
+
+function markReminded(id) {
+  const ids = getRemindedIds()
+  ids.add(id)
+  localStorage.setItem(REMINDED_STORAGE_KEY, JSON.stringify([...ids]))
+}
+
+function showReminder(event) {
+  markReminded(event.id)
+  const body = `${formatClock(event.start_time)} ${event.title}`
+
+  ElNotification({
+    title: '日程提醒',
+    message: body,
+    type: 'warning',
+    duration: 0,
+  })
+
+  if (notificationPermission.value === 'granted') {
+    new Notification('VoiceCalendar 日程提醒', {
+      body,
+      tag: `voice-calendar-${event.id}`,
+    })
+  }
+}
+
+function clearReminderTimers() {
+  reminderTimers.forEach((timer) => clearTimeout(timer))
+  reminderTimers = new Map()
+}
+
+function scheduleReminders() {
+  clearReminderTimers()
+  const now = Date.now()
+  const remindedIds = getRemindedIds()
+
+  events.value.forEach((event) => {
+    if (remindedIds.has(event.id)) return
+    const reminderAt = getReminderAt(event)
+    const startAt = parseLocalDateTime(event.start_time)
+    if (!reminderAt || !startAt || startAt.getTime() <= now) return
+
+    const delay = reminderAt.getTime() - now
+    if (delay <= 0) {
+      showReminder(event)
+      return
+    }
+
+    reminderTimers.set(event.id, window.setTimeout(() => showReminder(event), delay))
+  })
+}
+
+async function enableNotifications() {
+  if (!('Notification' in window)) {
+    notificationPermission.value = 'unsupported'
+    ElMessage.warning('当前浏览器不支持系统通知')
+    return
+  }
+
+  const permission = await Notification.requestPermission()
+  notificationPermission.value = permission
+  if (permission === 'granted') {
+    ElMessage.success('提醒通知已开启')
+    scheduleReminders()
+  } else {
+    ElMessage.warning('未开启系统通知，到点仍会显示页面内提醒')
+  }
+}
+
 async function loadEvents() {
   listLoading.value = true
   try {
     const { data } = await getEvents()
     events.value = data
+    scheduleReminders()
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || '获取日程失败'
   } finally {
@@ -120,20 +236,30 @@ async function loadEvents() {
   }
 }
 
-async function runCommand() {
-  if (!commandText.value.trim()) {
+async function executeCommand(text, source = 'manual') {
+  const command = text.trim()
+  if (!command) {
     ElMessage.warning('请输入日程指令')
     return
   }
   loading.value = true
   errorMessage.value = ''
   parsed.value = null
+  commandResults.value = []
+  hasQueryResult.value = false
   try {
-    const { data } = await createEventByCommand(commandText.value.trim())
+    const { data } = await executeCalendarCommand(command)
     parsed.value = data.parsed
+    commandResults.value = data.events || []
+    hasQueryResult.value = data.parsed?.intent === 'query'
     if (data.success) {
       ElMessage.success(data.message)
-      await loadEvents()
+      if (source === 'voice') {
+        voiceStatus.value = `已执行语音指令：${data.message}`
+      }
+      if (data.parsed?.intent !== 'query') {
+        await loadEvents()
+      }
     } else {
       errorMessage.value = data.message
       ElMessage.warning(data.message)
@@ -146,6 +272,10 @@ async function runCommand() {
   }
 }
 
+async function runCommand() {
+  await executeCommand(commandText.value)
+}
+
 async function handleUpload(uploadFile) {
   asrLoading.value = true
   errorMessage.value = ''
@@ -153,7 +283,8 @@ async function handleUpload(uploadFile) {
     const { data } = await uploadAudio(uploadFile.raw)
     recognizedText.value = data.text
     commandText.value = data.text
-    ElMessage.success(data.mock ? 'mock 语音识别完成' : '语音识别完成')
+    ElMessage.success(data.mock ? 'mock 语音识别完成，正在执行' : '语音识别完成，正在执行')
+    await executeCommand(data.text, 'voice')
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || '语音识别失败'
     ElMessage.error(errorMessage.value)
@@ -226,8 +357,9 @@ async function recognizeFile(file) {
     const { data } = await uploadAudio(file)
     recognizedText.value = data.text
     commandText.value = data.text
-    voiceStatus.value = data.mock ? 'mock 语音识别完成' : '腾讯云语音识别完成'
-    ElMessage.success(data.mock ? 'mock 语音识别完成' : '语音识别完成')
+    voiceStatus.value = data.mock ? 'mock 语音识别完成，正在执行' : '腾讯云语音识别完成，正在执行'
+    ElMessage.success(data.mock ? 'mock 语音识别完成，正在执行' : '语音识别完成，正在执行')
+    await executeCommand(data.text, 'voice')
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || '语音识别失败'
     voiceStatus.value = errorMessage.value
@@ -254,9 +386,28 @@ function writeString(view, offset, value) {
   }
 }
 
+function resampleAudio(samples, sourceSampleRate, targetSampleRate) {
+  if (sourceSampleRate === targetSampleRate) return samples
+
+  const ratio = sourceSampleRate / targetSampleRate
+  const resultLength = Math.max(1, Math.round(samples.length / ratio))
+  const result = new Float32Array(resultLength)
+
+  for (let i = 0; i < resultLength; i += 1) {
+    const sourceIndex = i * ratio
+    const left = Math.floor(sourceIndex)
+    const right = Math.min(left + 1, samples.length - 1)
+    const weight = sourceIndex - left
+    result[i] = samples[left] * (1 - weight) + samples[right] * weight
+  }
+
+  return result
+}
+
 function encodeWav(buffers, sampleRate) {
-  // 浏览器录音得到的是 Float32 PCM，这里封装为 16-bit mono WAV 文件上传。
-  const samples = mergeBuffers(buffers)
+  // 腾讯云 16k_zh 按 16k WAV 上传，避免浏览器默认 48k 导致空结果。
+  const rawSamples = mergeBuffers(buffers)
+  const samples = resampleAudio(rawSamples, sampleRate, TENCENT_ASR_SAMPLE_RATE)
   const bytesPerSample = 2
   const buffer = new ArrayBuffer(44 + samples.length * bytesPerSample)
   const view = new DataView(buffer)
@@ -268,8 +419,8 @@ function encodeWav(buffers, sampleRate) {
   view.setUint32(16, 16, true)
   view.setUint16(20, 1, true)
   view.setUint16(22, 1, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * bytesPerSample, true)
+  view.setUint32(24, TENCENT_ASR_SAMPLE_RATE, true)
+  view.setUint32(28, TENCENT_ASR_SAMPLE_RATE * bytesPerSample, true)
   view.setUint16(32, bytesPerSample, true)
   view.setUint16(34, 16, true)
   writeString(view, 36, 'data')
@@ -295,7 +446,14 @@ async function removeEvent(id) {
   }
 }
 
-onMounted(loadEvents)
+onMounted(() => {
+  notificationPermission.value = 'Notification' in window ? Notification.permission : 'unsupported'
+  loadEvents()
+})
+
+onUnmounted(() => {
+  clearReminderTimers()
+})
 </script>
 
 <template>
@@ -306,7 +464,16 @@ onMounted(loadEvents)
           <h1>VoiceCalendar</h1>
           <p>语音交互式智能日历工具 MVP</p>
         </div>
-        <el-button :icon="Refresh" :loading="listLoading" @click="loadEvents">刷新</el-button>
+        <div class="topbar-actions">
+          <el-button
+            :icon="Bell"
+            :type="notificationPermission === 'granted' ? 'success' : 'default'"
+            @click="enableNotifications"
+          >
+            {{ notificationPermission === 'granted' ? '提醒已开启' : '开启提醒' }}
+          </el-button>
+          <el-button :icon="Refresh" :loading="listLoading" @click="loadEvents">刷新</el-button>
+        </div>
       </header>
 
       <section class="command-panel">
@@ -328,7 +495,7 @@ onMounted(loadEvents)
             :loading="asrLoading"
             @click="startRecording"
           >
-            开始语音输入
+            开始语音指令
           </el-button>
           <el-button v-else type="danger" :icon="VideoPause" @click="stopRecording">
             停止录音
@@ -366,6 +533,21 @@ onMounted(loadEvents)
         </div>
       </section>
 
+      <section v-if="hasQueryResult" class="query-panel">
+        <div class="section-head">
+          <h2>查看结果</h2>
+          <span>{{ commandResults.length }} 条</span>
+        </div>
+        <div class="query-list">
+          <div v-for="event in commandResults" :key="event.id" class="query-item">
+            <strong>{{ event.title }}</strong>
+            <span>{{ formatTime(event.start_time) }}</span>
+            <small>提前 {{ event.reminder_minutes }} 分钟提醒</small>
+          </div>
+          <p v-if="!commandResults.length" class="empty-query">没有找到日程</p>
+        </div>
+      </section>
+
       <section class="calendar-panel">
         <div class="section-head">
           <h2>日历</h2>
@@ -399,6 +581,7 @@ onMounted(loadEvents)
               <div v-for="event in day.events.slice(0, 3)" :key="event.id" class="calendar-event">
                 <span>{{ formatClock(event.start_time) }}</span>
                 <p>{{ event.title }}</p>
+                <small>{{ formatClock(toLocalDateTimeString(getReminderAt(event))) }} 提醒</small>
               </div>
               <p v-if="day.events.length > 3" class="more-events">还有 {{ day.events.length - 3 }} 条</p>
             </div>
@@ -420,7 +603,10 @@ onMounted(loadEvents)
             <template #default="{ row }">{{ formatTime(row.end_time) }}</template>
           </el-table-column>
           <el-table-column label="提醒" width="100">
-            <template #default="{ row }">{{ row.reminder_minutes }} 分钟</template>
+            <template #default="{ row }">提前 {{ row.reminder_minutes }} 分钟</template>
+          </el-table-column>
+          <el-table-column label="提醒时间" min-width="180">
+            <template #default="{ row }">{{ formatReminder(row) }}</template>
           </el-table-column>
           <el-table-column prop="raw_text" label="原始输入" min-width="220" />
           <el-table-column label="操作" width="100" fixed="right">

@@ -50,8 +50,17 @@ h1 {
   color: #64748b;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .command-panel,
 .panel,
+.query-panel,
 .calendar-panel,
 .events-panel {
   border: 1px solid #dbe3ee;
@@ -121,6 +130,40 @@ pre {
 .events-panel {
   margin-top: 16px;
   padding: 18px;
+}
+
+.query-panel {
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.query-list {
+  display: grid;
+  gap: 10px;
+}
+
+.query-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 180px 150px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.query-item span,
+.query-item small {
+  color: #64748b;
+}
+
+.empty-query {
+  padding: 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  color: #64748b;
+  text-align: center;
 }
 
 .calendar-panel {
@@ -273,6 +316,14 @@ pre {
   white-space: nowrap;
 }
 
+.calendar-event small {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
 .more-events {
   color: #94a3b8;
   font-size: 12px;
@@ -288,12 +339,18 @@ pre {
     display: block;
   }
 
-  .topbar .el-button {
+  .topbar-actions {
+    justify-content: flex-start;
     margin-top: 14px;
   }
 
   .panel + .panel {
     margin-top: 16px;
+  }
+
+  .query-item {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .section-head {
