@@ -6,7 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from database import get_db, init_db
-from schemas import AsrResponse, CommandRequest, CommandResponse, EventCreate, EventResponse
+from schemas import (
+    AsrResponse,
+    CommandRequest,
+    CommandResponse,
+    EventCreate,
+    EventResponse,
+    ReminderSpeechRequest,
+    ReminderSpeechResponse,
+)
 from services.asr_service import recognize_audio
 from services.calendar_service import (
     create_event,
@@ -16,8 +24,13 @@ from services.calendar_service import (
     parse_datetime,
     search_events,
 )
-from services.deepseek_service import parse_calendar_command
+from services.deepseek_service import (
+    generate_reminder_text,
+    parse_calendar_command,
+    select_event_for_delete,
+)
 from services.text_normalizer import normalize_asr_text
+from services.tts_service import synthesize_speech
 
 
 app = FastAPI(title="VoiceCalendar API")
@@ -82,26 +95,45 @@ def _is_generic_query_keyword(keyword: str) -> bool:
     }
 
 
+def _event_candidates(events):
+    return [
+        {
+            "id": event.id,
+            "title": event.title,
+            "start_time": event.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time": event.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "raw_text": event.raw_text,
+        }
+        for event in events
+    ]
+
+
 @app.post("/api/command", response_model=CommandResponse)
 async def command(payload: CommandRequest, db: Session = Depends(get_db)):
     command_text = normalize_asr_text(payload.text)
+    all_events = list_events(db)
+    event_context = _event_candidates(all_events)
     try:
-        parsed = await parse_calendar_command(command_text, datetime.now())
+        parsed = await parse_calendar_command(command_text, datetime.now(), event_context)
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     if parsed.intent == "query":
-        target_day = _target_day_from_text(command_text, parsed.start_time)
-        keyword = parsed.title.strip()
-        if _is_generic_query_keyword(keyword):
-            keyword = ""
-        results = list_events_for_day(db, target_day) if target_day else list_events(db)
-        if keyword:
-            results = [
-                event
-                for event in results
-                if keyword in event.title or keyword in event.raw_text
-            ]
+        target_ids = set(parsed.target_event_ids)
+        if target_ids:
+            results = [event for event in all_events if event.id in target_ids]
+        else:
+            target_day = _target_day_from_text(command_text, parsed.start_time)
+            keyword = parsed.title.strip()
+            if _is_generic_query_keyword(keyword):
+                keyword = ""
+            results = list_events_for_day(db, target_day) if target_day else all_events
+            if keyword:
+                results = [
+                    event
+                    for event in results
+                    if keyword in event.title or keyword in event.raw_text
+                ]
         return CommandResponse(
             success=True,
             message=f"找到 {len(results)} 条日程",
@@ -111,15 +143,38 @@ async def command(payload: CommandRequest, db: Session = Depends(get_db)):
 
     if parsed.intent == "delete":
         keyword = parsed.title or _command_keyword(command_text)
-        candidates = search_events(db, keyword) if keyword else list_events(db)
-        if not candidates:
+        if not all_events:
             return CommandResponse(success=False, message="没有找到可删除的日程", parsed=parsed)
-        target = candidates[0]
+
+        target = None
+        target_ids = parsed.target_event_ids
+        if target_ids:
+            target = next((event for event in all_events if event.id == target_ids[0]), None)
+
+        if target is None:
+            try:
+                selection = await select_event_for_delete(command_text, event_context)
+            except ValueError:
+                selection = {"event_id": None, "confidence": 0.0}
+            selected_id = selection.get("event_id")
+            confidence = float(selection.get("confidence") or 0)
+            if selected_id and confidence >= 0.55:
+                target = next((event for event in all_events if event.id == int(selected_id)), None)
+            if target is None:
+                candidates = search_events(db, keyword) if keyword else all_events
+                target = candidates[0] if candidates else None
+
+        if target is None:
+            return CommandResponse(success=False, message="没有找到可删除的日程", parsed=parsed)
+
+        if len(all_events) > 1 and not parsed.target_event_ids and not keyword:
+            return CommandResponse(success=False, message="请说清楚要删除哪条日程", parsed=parsed)
+
         delete_event(db, target.id)
         return CommandResponse(success=True, message=f"已删除日程：{target.title}", parsed=parsed)
 
     if parsed.intent != "create":
-        return CommandResponse(success=False, message="当前 MVP 支持创建、查询、删除日程", parsed=parsed)
+        return CommandResponse(success=False, message="当前支持创建、查询、删除日程", parsed=parsed)
     if not parsed.title or not parsed.start_time or not parsed.end_time:
         return CommandResponse(success=False, message="解析结果缺少必要字段", parsed=parsed)
 
@@ -163,3 +218,14 @@ async def asr(file: UploadFile = File(...)):
     if not result.get("success"):
         raise HTTPException(status_code=501, detail=result.get("message", "ASR 未启用"))
     return result
+
+
+@app.post("/api/reminder-speech", response_model=ReminderSpeechResponse)
+async def reminder_speech(payload: ReminderSpeechRequest):
+    event_data = payload.event.model_dump()
+    try:
+        reminder_text = await generate_reminder_text(event_data, datetime.now())
+        audio = await synthesize_speech(reminder_text)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ReminderSpeechResponse(success=True, text=reminder_text, **audio)

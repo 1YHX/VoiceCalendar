@@ -14,6 +14,7 @@ class ParsedCommand(BaseModel):
     start_time: str = ""
     end_time: str = ""
     reminder_minutes: int = 10
+    target_event_ids: list[int] = Field(default_factory=list)
     confidence: float = 0.0
     clarification_question: str = ""
 
@@ -52,3 +53,14 @@ class AsrResponse(BaseModel):
     success: bool
     text: str
     mock: bool
+
+
+class ReminderSpeechRequest(BaseModel):
+    event: EventResponse
+
+
+class ReminderSpeechResponse(BaseModel):
+    success: bool
+    text: str
+    audio_base64: str
+    audio_mime: str = "audio/wav"

@@ -12,7 +12,13 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
 import { Solar } from 'lunar-javascript'
-import { deleteEvent, executeCalendarCommand, getEvents, uploadAudio } from './api/calendar'
+import {
+  createReminderSpeech,
+  deleteEvent,
+  executeCalendarCommand,
+  getEvents,
+  uploadAudio
+} from './api/calendar'
 
 const commandText = ref('明天下午三点提醒我开会')
 const recognizedText = ref('')
@@ -161,6 +167,17 @@ function markReminded(id) {
   localStorage.setItem(REMINDED_STORAGE_KEY, JSON.stringify([...ids]))
 }
 
+async function playReminderSpeech(event) {
+  try {
+    const { data } = await createReminderSpeech(event)
+    const audio = new Audio(`data:${data.audio_mime};base64,${data.audio_base64}`)
+    await audio.play()
+  } catch (error) {
+    const message = error.response?.data?.detail || '语音提醒播放失败'
+    ElMessage.warning(message)
+  }
+}
+
 function showReminder(event) {
   markReminded(event.id)
   const body = `${formatClock(event.start_time)} ${event.title}`
@@ -178,6 +195,8 @@ function showReminder(event) {
       tag: `voice-calendar-${event.id}`,
     })
   }
+
+  playReminderSpeech(event)
 }
 
 function clearReminderTimers() {
@@ -462,7 +481,7 @@ onUnmounted(() => {
       <header class="topbar">
         <div>
           <h1>VoiceCalendar</h1>
-          <p>语音交互式智能日历工具 MVP</p>
+          <p>语音交互式智能日历工具</p>
         </div>
         <div class="topbar-actions">
           <el-button

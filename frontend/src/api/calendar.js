@@ -24,3 +24,7 @@ export function uploadAudio(file) {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
+
+export function createReminderSpeech(event) {
+  return api.post('/reminder-speech', { event })
+}

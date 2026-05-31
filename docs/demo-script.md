@@ -48,6 +48,6 @@ http://localhost:5173
 
 ## 说明
 
-- 当前 MVP 默认 `ASR_MOCK=true`，录音文件不会调用真实语音识别。
+- 默认 `ASR_MOCK=true` 时，录音文件不会调用真实语音识别。
 - 设置 `ASR_MOCK=false` 并配置腾讯云密钥后，后端会调用腾讯云一句话识别。
 - 如果没有配置真实 `DEEPSEEK_API_KEY`，后端会用本地兜底解析支持演示指令。

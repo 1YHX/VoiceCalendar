@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from schemas import EventCreate
 
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+ACTION_WORDS_PATTERN = r"(提醒事项|日程安排|日程|提醒|事件|计划|安排)"
 
 
 def parse_datetime(value: str) -> datetime:
@@ -36,16 +38,24 @@ def list_events_for_day(db: Session, target_day: date) -> list[Event]:
     )
 
 
+def normalize_search_text(value: str) -> str:
+    text = re.sub(ACTION_WORDS_PATTERN, "", value or "")
+    text = re.sub(r"[，。,.!！?？\s]", "", text)
+    return text
+
+
 def search_events(db: Session, keyword: str) -> list[Event]:
-    cleaned = keyword.strip()
+    cleaned = normalize_search_text(keyword)
     if not cleaned:
         return []
-    return (
-        db.query(Event)
-        .filter((Event.title.contains(cleaned)) | (Event.raw_text.contains(cleaned)))
-        .order_by(Event.start_time.asc())
-        .all()
-    )
+    events = db.query(Event).order_by(Event.start_time.asc()).all()
+    return [
+        event
+        for event in events
+        if cleaned in normalize_search_text(event.title)
+        or cleaned in normalize_search_text(event.raw_text)
+        or normalize_search_text(event.title) in cleaned
+    ]
 
 
 def delete_event(db: Session, event_id: int) -> bool:

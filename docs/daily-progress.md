@@ -13,7 +13,7 @@
 推荐 commit：
 
 ```text
-feat: add fastapi backend MVP
+feat: add fastapi backend
 ```
 
 ## Day 2
@@ -28,6 +28,6 @@ feat: add fastapi backend MVP
 推荐 commit：
 
 ```text
-feat: add vue frontend MVP
-docs: add MVP documentation
+feat: add vue frontend
+docs: add project documentation
 ```
